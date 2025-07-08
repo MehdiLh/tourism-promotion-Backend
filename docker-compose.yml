@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.4
+    container_name: mysql-container
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3308:3306"
+    volumes:
+      - ./db/:/docker-entrypoint-initdb.d/
+      - ./cache/mysql_data/:/var/lib/mysql
+    restart: always
+    networks:
+      - internal
+
+  # OAuth2 Identity Provider (Spring Boot)
+  oauth2-idp:
+    image: maven:3.9.9-amazoncorretto-17-debian-bookworm
+    container_name: oauth2-idp
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./oauth2-idp-demo/:/app
+      - ./bin/dockerize:/usr/local/bin/dockerize
+      - ./cache/maven-repo/:/root/.m2/repository/
+      - ./oauth2-idp-demo/keys.p12:/etc/keystore/keys.p12
+      - ./bin/run-sb-app:/app/execution-script.sh
+    environment:
+      - DB_URL=jdbc:mysql://mysql:3306/demo_idp_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root
+      - SERVER_PORT=8083
+    depends_on:
+      - mysql
+    entrypoint: ["dockerize", "-wait", "tcp://mysql:3306", "-timeout", "60s", "/app/execution-script.sh"]
+    networks:
+      - internal
+
+  # OAuth2 Resource Server (Spring Boot)
+  oauth2-resource:
+    image: maven:3.9.9-amazoncorretto-17-debian-bookworm
+    container_name: oauth2-resource
+    ports:
+      - "8085:8085"
+    volumes:
+      - ./oauth2-resource-demo/:/app/
+      - ./bin/dockerize:/usr/local/bin/dockerize
+      - ./cache/maven-repo-1/:/root/.m2/repository/
+      - ./bin/run-sb-app:/app/execution-script.sh
+    depends_on:
+      - mysql
+      - oauth2-idp
+    entrypoint: ["dockerize", "-wait", "http://oauth2-idp:8083/.well-known/openid-configuration", "-timeout", "60s", "/app/execution-script.sh"]
+    networks:
+      - internal
+
+  # OAuth2 Client (React App)
+  oauth2-client:
+    image: node:18-alpine
+    container_name: oauth2-client
+    ports:
+      - "3000:5147"
+    volumes:
+      - ./oauth2-client-demo/:/app/
+      - ./bin/dockerize:/usr/local/bin/dockerize
+      - ./bin/run-client-app:/app/run-client-app.sh
+    depends_on:
+      - oauth2-idp
+      - oauth2-resource
+    entrypoint: ["dockerize", "-wait", "http://oauth2-idp:8083/.well-known/openid-configuration", "-timeout", "60s", "/app/run-client-app.sh"]
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

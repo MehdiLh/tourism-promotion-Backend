@@ -1,0 +1,8 @@
+#!/bin/sh
+SCRIPT_DIR=$(dirname "$0")
+
+# Change to the script directory
+cd $SCRIPT_DIR
+mvn clean install -DskipTests;
+set -a; . ./.env; set +a;
+mvn spring-boot:run;
